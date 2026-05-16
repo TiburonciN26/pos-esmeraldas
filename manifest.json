@@ -1,7 +1,7 @@
 {
   "name": "POS Esmeraldas Salón y Spa",
   "short_name": "POS Esmeraldas",
-  "start_url": "/",
+  "start_url": "/pos-esmeraldas/",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0d0d0d",
