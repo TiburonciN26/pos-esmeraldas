@@ -6,11 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>POS · Esmeraldas</title>
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
-<link rel="manifest" href="https://script.google.com/macros/s/AKfycbz5zzR4ZRdxnEk6AsmnhRnIWkPiecfz_xPMcxY9UnqN17JgGSsOHwCA5_zwMtS1GvRkeQ/exec?action=manifest">
+<link rel="manifest" href="manifest.json">
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#f5a623">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#f5a623">   
+<meta name="mobile-web-app-capable" content="yes">   
     <style>
         :root {
             --bg: #0d0d0d;
@@ -2028,6 +2027,7 @@
             <button id="btnSerial" onclick="setupSerial()"
                 style="display:none;background:rgba(62,207,106,.12);border:1px solid rgba(62,207,106,.3);color:var(--green);padding:5px 11px;border-radius:5px;font-size:.72rem;font-weight:600;white-space:nowrap">🖨️
                 Conectar impresora</button>
+            <button onclick="openCfg()" title="Configurar URL" style="background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.25);color:var(--amber);padding:5px 11px;border-radius:5px;font-size:.72rem;font-weight:600">⚙️</button>
             <div class="clock" id="clockEl"></div>
         </div>
         <div class="views">
@@ -2289,6 +2289,36 @@
         </div>
     </div>
 
+    
+    <!-- Modal: configuración URL -->
+    <div class="modal-bg" id="cfgModal">
+        <div class="modal-sheet" style="max-width:460px">
+            <div class="mhead">
+                <h3>CONFIGURACIÓN</h3>
+                <button class="mclose" onclick="closeCfg()">✕</button>
+            </div>
+            <div class="mform">
+                <div class="fgroup">
+                    <label>URL del Apps Script *</label>
+                    <input id="cfgUrl" type="text" placeholder="https://script.google.com/macros/s/...">
+                    <div class="hint">La misma URL que usas normalmente en Apps Script</div>
+                </div>
+                <div class="fgroup">
+                    <label>Nombre del negocio</label>
+                    <input id="cfgBiz" type="text" placeholder="Esmeraldas">
+                </div>
+                <div class="fgroup">
+                    <label>Moneda</label>
+                    <input id="cfgCur" type="text" placeholder="S/." style="max-width:80px">
+                </div>
+            </div>
+            <div class="mfoot">
+                <button class="mbtn-cancel" onclick="closeCfg()">Cancelar</button>
+                <button class="mbtn-ok" onclick="saveConfig()">Guardar y conectar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="ticket-print">
         <div class="tkt" id="tktContent"></div>
     </div>
@@ -2299,12 +2329,21 @@
     </div>
 
     <script>
-        const S = { prods: [], histMap: {}, catalog: {}, cart: [], pay: 'Efectivo', corrNum: 1, saleId: '', view: 'pos', histFilter: 'hoy', history: [], editing: null, addStockId: null, CUR: 'S/.', BIZ: 'Esmeraldas' };
+        var S = { prods: [], histMap: {}, SCRIPT_URL: '', catalog: {}, cart: [], pay: 'Efectivo', corrNum: 1, saleId: '', view: 'pos', histFilter: 'hoy', history: [], editing: null, addStockId: null, CUR: 'S/.', BIZ: 'Esmeraldas' };
         //Variables globales
         var _photoB64 = null;
         var _photoName = null;
         var _lastAdded = null;
-        window.addEventListener('load', function () { spin(true, 'Iniciando POS...'); tickClock(); setInterval(tickClock, 1000); google.script.run.withSuccessHandler(onBoot).withFailureHandler(function (e) { spin(false); toast('Error al iniciar: ' + e.message, 'err'); }).getInitData(); });
+        window.addEventListener('load', function () {
+        tickClock(); setInterval(tickClock, 1000);
+        S.SCRIPT_URL = localStorage.getItem('pos_url') || '';
+        S.BIZ = localStorage.getItem('pos_biz') || 'Esmeraldas';
+        S.CUR = localStorage.getItem('pos_cur') || 'S/.';
+        document.getElementById('logoTxt').textContent = S.BIZ.toUpperCase();
+        if (!S.SCRIPT_URL) { openCfg(); return; }
+        spin(true, 'Iniciando POS...');
+        apiGet('init').then(onBoot).catch(function(e) { spin(false); toast('Error al iniciar: ' + e.message, 'err'); openCfg(); });
+        });
         function onBoot(d) { S.prods = d.products || []; S.corrNum = (d.nextCorrelativo || 1); buildCatalog(); nextSale(); renderInv(); spin(false); focusScan(); }
         function buildCatalog() { S.catalog = {}; S.prods.forEach(function (p) { S.catalog[String(p.ID_Producto)] = p; }); }
         function goView(v) { S.view = v;['pos', 'inv', 'hist'].forEach(function (id) { document.getElementById('view-' + id).classList.toggle('on', id === v); document.getElementById('dt-' + id).classList.toggle('on', id === v); document.getElementById('bn-' + id).classList.toggle('on', id === v); }); if (v === 'pos') setTimeout(focusScan, 100); if (v === 'hist') loadHistory(); }
@@ -2372,7 +2411,9 @@
         function calcChange() { if (S.pay !== 'Efectivo') return; var total = S.cart.reduce(function (s, i) { return s + i.sub; }, 0); var received = parseFloat(document.getElementById('amtInput').value) || 0; var chgRow = document.getElementById('chgRow'); if (received > 0 && received >= total) { chgRow.style.display = 'flex'; document.getElementById('chgEl').textContent = S.CUR + ' ' + (received - total).toFixed(2); } else { chgRow.style.display = 'none'; } }
         function setAmt(v) { document.getElementById('amtInput').value = v; calcChange(); }
         function setExact() { setAmt(S.cart.reduce(function (s, i) { return s + i.sub; }, 0).toFixed(2)); }
-        function doSale() { if (!S.cart.length) return; var total = S.cart.reduce(function (s, i) { return s + i.sub; }, 0); var received = parseFloat(document.getElementById('amtInput').value) || 0; if (S.pay === 'Efectivo' && received < total) { toast('Monto insuficiente. Faltan ' + S.CUR + ' ' + (total - received).toFixed(2), 'err'); return; } spin(true, 'Guardando venta...'); var cartSnapshot = S.cart.map(function (i) { return { id: i.id, qty: i.qty, nombre: i.nombre, precio: i.precio, sub: i.sub }; }); google.script.run.withSuccessHandler(function (res) { spin(false); if (res.success) { cartSnapshot.forEach(function (item) { var prod = S.catalog[item.id]; if (prod) { var st = Number(prod.Stock_Actual); if (!isNaN(st)) prod.Stock_Actual = Math.max(0, st - item.qty); } }); buildCatalog(); renderInv(); printTicket(total, received, received - total); toast('✓ Venta ' + res.idVenta + ' guardada', 'ok'); S.corrNum++; resetSale(); } else { toast('Error: ' + res.error, 'err'); } }).withFailureHandler(function (e) { spin(false); toast('Error de conexión', 'err'); }).confirmSale({ items: cartSnapshot, total: total, metodoPago: S.pay, montoRecibido: received }); }
+        function doSale() { if (!S.cart.length) return; var total = S.cart.reduce(function (s, i) { return s + i.sub; }, 0); var received = parseFloat(document.getElementById('amtInput').value) || 0; if (S.pay === 'Efectivo' && received < total) { toast('Monto insuficiente. Faltan ' + S.CUR + ' ' + (total - received).toFixed(2), 'err'); return; } spin(true, 'Guardando venta...'); var cartSnapshot = S.cart.map(function (i) { return { id: i.id, qty: i.qty, nombre: i.nombre, precio: i.precio, sub: i.sub }; }); apiPost('saveSale', {sale: {items: cartSnapshot, total: total, metodoPago: S.pay, montoRecibido: received}})
+            .then(function(res) { spin(false); if (res.success) { cartSnapshot.forEach(function(item) { var prod = S.catalog[item.id]; if (prod) { var st = Number(prod.Stock_Actual); if (!isNaN(st)) prod.Stock_Actual = Math.max(0, st - item.qty); } }); buildCatalog(); renderInv(); printTicket(total, received, received - total); toast('✓ Venta ' + res.idVenta + ' guardada', 'ok'); S.corrNum++; resetSale(); } else { toast('Error: ' + res.error, 'err'); } })
+            .catch(function(e) { spin(false); toast('Error de conexión', 'err'); }); }
         function nextSale() { S.saleId = 'VEN' + String(S.corrNum).padStart(3, '0'); document.getElementById('saleTag').textContent = S.saleId; }
         function resetSale() { S.cart = []; nextSale(); renderCart(); updateTotals(); document.getElementById('amtInput').value = ''; setPay('Efectivo'); focusScan(); }
         function voidSale() { if (!S.cart.length) return; if (confirm('¿Cancelar venta ' + S.saleId + '?')) resetSale(); }
@@ -2476,18 +2517,16 @@
             };
             if (_photoB64) {
                 spin(true, 'Subiendo foto...');
-                google.script.run
-                    .withSuccessHandler(function (res) {
-                        if (res.success) { prod.Foto = res.fileId; doSaveProd(prod); }
-                        else { spin(false); toast('Error foto: ' + res.error, 'err'); }
-                    })
-                    .withFailureHandler(function (e) { spin(false); toast('Error: ' + e.message, 'err'); })
-                    .uploadPhoto(_photoB64, _photoName || 'producto.jpg');
+                apiPost('uploadPhoto', {base64Data: _photoB64, fileName: _photoName || 'producto.jpg'})
+                .then(function(res) { if (res.success) { prod.Foto = res.fileId; doSaveProd(prod); } else { spin(false); toast('Error foto: ' + res.error, 'err'); } })
+                .catch(function(e) { spin(false); toast('Error: ' + e.message, 'err'); });
             } else {
                 doSaveProd(prod);
             }
         }
-        function deleteProd(id) { var p = S.prods.find(function (x) { return String(x.ID_Producto) === id; }); if (!p) return; if (!confirm('¿Eliminar "' + p.Nombre + '"?\nEsta acción no se puede deshacer.')) return; spin(true, 'Eliminando...'); google.script.run.withSuccessHandler(function (res) { spin(false); if (res.success) { toast('Producto eliminado', 'ok'); google.script.run.withSuccessHandler(function (d) { S.prods = d.products || []; buildCatalog(); renderInv(); }).getInitData(); } else { toast(res.error || 'Error', 'err'); } }).withFailureHandler(function (e) { spin(false); toast('Error: ' + e.message, 'err'); }).removeProduct(id); }
+        function deleteProd(id) { var p = S.prods.find(function (x) { return String(x.ID_Producto) === id; }); if (!p) return; if (!confirm('¿Eliminar "' + p.Nombre + '"?\nEsta acción no se puede deshacer.')) return; spin(true, 'Eliminando...'); apiPost('removeProduct', {id: id})
+            .then(function(res) { spin(false); if (res.success) { toast('Producto eliminado', 'ok'); apiGet('init').then(function(d) { S.prods = d.products || []; buildCatalog(); renderInv(); }); } else { toast(res.error || 'Error', 'err'); } })
+            .catch(function(e) { spin(false); toast('Error: ' + e.message, 'err'); }); }
 
         // ── MODAL AGREGAR STOCK ──────────────────────────────────────
         function openAddStock(id) {
@@ -2518,19 +2557,9 @@
             if (!qty || qty <= 0) { toast('Ingresa una cantidad válida', 'err'); return; }
             var nota = document.getElementById('asNota').value.trim();
             spin(true, 'Agregando stock...');
-            google.script.run
-                .withSuccessHandler(function (res) {
-                    spin(false);
-                    if (res.success) {
-                        var prod = S.prods.find(function (p) { return String(p.ID_Producto) === S.addStockId; });
-                        if (prod) prod.Stock_Actual = res.stockNuevo;
-                        buildCatalog(); renderInv();
-                        closeAddStock();
-                        toast('✓ Stock actualizado: ' + res.stockNuevo + ' uds.', 'ok');
-                    } else { toast('Error: ' + res.error, 'err'); }
-                })
-                .withFailureHandler(function (e) { spin(false); toast('Error: ' + e.message, 'err'); })
-                .addStock({ id: S.addStockId, cantidad: qty, nota: nota });
+            apiPost('addStock', {id: S.addStockId, cantidad: qty, nota: nota})
+            .then(function(res) { spin(false); if (res.success) { var prod = S.prods.find(function(p) { return String(p.ID_Producto) === S.addStockId; }); if (prod) prod.Stock_Actual = res.stockNuevo; buildCatalog(); renderInv(); closeAddStock(); toast('✓ Stock actualizado: ' + res.stockNuevo + ' uds.', 'ok'); } else { toast('Error: ' + res.error, 'err'); } })
+            .catch(function(e) { spin(false); toast('Error: ' + e.message, 'err'); });
         }
 
         // ── MODAL DETALLE DEL PRODUCTO ───────────────────────────────
@@ -2562,31 +2591,14 @@
                 + (prod.Foto ? '<div class="pd-detail-right"><img src="' + prodPhotoUrl(prod.Foto, 600) + '"></div>' : '')
                 + '</div>';
             document.getElementById('prodDetailModal').classList.add('show');
-            google.script.run
-                .withSuccessHandler(function (history) {
-                    var el = document.getElementById('pdHistorial');
-                    if (!el) return;
-                    if (!history || !history.length) { el.innerHTML = '<div style="text-align:center;padding:20px;opacity:.5">Sin entradas de stock registradas</div>'; return; }
-                    el.innerHTML = history.map(function (h) {
-                        var d = new Date(h.Fecha);
-                        var fecha = !isNaN(d) ? d.toLocaleDateString('es-PE') + ' ' + d.toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : String(h.Fecha || '—');
-                        return '<div class="pd-hist-row">'
-                            + '<div style="flex:1">'
-                            + '<div style="font-size:.78rem;color:var(--text)">' + fecha + '</div>'
-                            + (h.Nota ? '<div style="font-size:.72rem;color:var(--muted);margin-top:2px">' + esc(String(h.Nota)) + '</div>' : '')
-                            + '</div>'
-                            + '<div style="font-family:var(--mono);color:var(--green);font-weight:700;font-size:.9rem">+' + h.Cantidad_Agregada + '</div>'
-                            + '<div style="font-size:.72rem;color:var(--muted);font-family:var(--mono);margin-left:8px">' + h.Stock_Anterior + ' → ' + h.Stock_Nuevo + '</div>'
-                            + '</div>';
-                    }).join('');
-                })
-                .withFailureHandler(function () { var el = document.getElementById('pdHistorial'); if (el) el.innerHTML = '<div style="color:var(--red);font-size:.8rem">Error al cargar historial</div>'; })
-                .getStockHistory(id);
+            apiGet('stockHistory', {id: id})
+            .then(function(res) { var history = res.history || []; var el = document.getElementById('pdHistorial'); if (!el) return; if (!history.length) { el.innerHTML = '<div style="text-align:center;padding:20px;opacity:.5">Sin entradas de stock registradas</div>'; return; } el.innerHTML = history.map(function(h) { var d = new Date(h.Fecha); var fecha = !isNaN(d) ? d.toLocaleDateString('es-PE') + ' ' + d.toLocaleTimeString('es-PE', {hour:'2-digit',minute:'2-digit'}) : String(h.Fecha||'—'); return '<div class="pd-hist-row"><div style="flex:1"><div style="font-size:.78rem;color:var(--text)">' + fecha + '</div>' + (h.Nota ? '<div style="font-size:.72rem;color:var(--muted);margin-top:2px">' + esc(String(h.Nota)) + '</div>' : '') + '</div><div style="font-family:var(--mono);color:var(--green);font-weight:700;font-size:.9rem">+' + h.Cantidad_Agregada + '</div><div style="font-size:.72rem;color:var(--muted);font-family:var(--mono);margin-left:8px">' + h.Stock_Anterior + ' → ' + h.Stock_Nuevo + '</div></div>'; }).join(''); })
+            .catch(function() { var el = document.getElementById('pdHistorial'); if (el) el.innerHTML = '<div style="color:var(--red);font-size:.8rem">Error al cargar historial</div>'; });
         }
         function closeProdDetail() { document.getElementById('prodDetailModal').classList.remove('show'); }
 
         // ── HISTORIAL DE VENTAS ──────────────────────────────────────
-        function loadHistory() { document.getElementById('histBody').innerHTML = '<div class="hist-empty"><div style="font-size:2rem;opacity:.4">📋</div><div>Cargando...</div></div>'; document.getElementById('sumVentas').textContent = '—'; document.getElementById('sumTotal').textContent = '—'; document.getElementById('sumProds').textContent = '—'; google.script.run.withSuccessHandler(function (sales) { S.history = sales || []; filterAndRender(); }).withFailureHandler(function () { document.getElementById('histBody').innerHTML = '<div class="hist-empty"><div>Error al cargar</div></div>'; }).getHistory(); }
+        function loadHistory() { document.getElementById('histBody').innerHTML = '<div class="hist-empty"><div style="font-size:2rem;opacity:.4">📋</div><div>Cargando...</div></div>'; document.getElementById('sumVentas').textContent = '—'; document.getElementById('sumTotal').textContent = '—'; document.getElementById('sumProds').textContent = '—'; apiGet('history').then(function(res) { S.history = res.sales || []; filterAndRender(); }).catch(function() { document.getElementById('histBody').innerHTML = '<div class="hist-empty"><div>Error al cargar</div></div>'; }); }
         function setHistFilter(f) { S.histFilter = f; document.querySelectorAll('.hfbtn').forEach(function (b) { b.classList.remove('on'); }); document.getElementById('hf-' + f).classList.add('on'); var dr = document.getElementById('histDateRange'); dr.style.display = f === 'custom' ? 'flex' : 'none'; if (f === 'custom') { var now = new Date(); var y = now.getFullYear(); var m = String(now.getMonth() + 1).padStart(2, '0'); var d = String(now.getDate()).padStart(2, '0'); if (!document.getElementById('histFrom').value) document.getElementById('histFrom').value = y + '-' + m + '-01'; if (!document.getElementById('histTo').value) document.getElementById('histTo').value = y + '-' + m + '-' + d; applyCustomFilter(); } else { filterAndRender(); } }
         function applyCustomFilter() { if (document.getElementById('histFrom').value && document.getElementById('histTo').value) filterAndRender(); }
         function parseLocalDate(str) { var p = str.split('-'); return new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2])); }
@@ -2667,19 +2679,9 @@
         function confirmCancel(idVenta) {
             if (!confirm('¿Anular la venta ' + idVenta + '?\nEsto devolverá el stock al inventario.\nLa venta quedará marcada en rojo.')) return;
             spin(true, 'Anulando venta...');
-            google.script.run
-                .withSuccessHandler(function (res) {
-                    spin(false);
-                    if (res.success) {
-                        toast('Venta ' + idVenta + ' anulada', 'ok');
-                        var s = S.histMap[idVenta];
-                        if (s) s.Estado = 'Anulada';
-                        filterAndRender();
-                        google.script.run.withSuccessHandler(function (d) { S.prods = d.products || []; buildCatalog(); renderInv(); }).getInitData();
-                    } else { toast('Error: ' + res.error, 'err'); }
-                })
-                .withFailureHandler(function (e) { spin(false); toast('Error: ' + e.message, 'err'); })
-                .cancelSale(idVenta);
+            apiPost('cancelSale', {idVenta: idVenta})
+            .then(function(res) { spin(false); if (res.success) { toast('Venta ' + idVenta + ' anulada', 'ok'); var s = S.histMap[idVenta]; if (s) s.Estado = 'Anulada'; filterAndRender(); apiGet('init').then(function(d) { S.prods = d.products || []; buildCatalog(); renderInv(); }); } else { toast('Error: ' + res.error, 'err'); } })
+            .catch(function(e) { spin(false); toast('Error: ' + e.message, 'err'); });
         }
 
 
@@ -2732,19 +2734,9 @@
         function doSaveProd(prod) {
             var fn = S.editing ? 'editProduct' : 'addProduct';
             spin(true, S.editing ? 'Guardando cambios...' : 'Agregando producto...');
-            google.script.run
-                .withSuccessHandler(function (res) {
-                    spin(false);
-                    if (res.success) {
-                        closeProdModal();
-                        toast('✓ Producto ' + (S.editing ? 'actualizado' : 'agregado'), 'ok');
-                        google.script.run.withSuccessHandler(function (d) {
-                            S.prods = d.products || []; buildCatalog(); renderInv();
-                        }).getInitData();
-                    } else { toast(res.error || 'Error al guardar', 'err'); }
-                })
-                .withFailureHandler(function (e) { spin(false); toast('Error: ' + e.message, 'err'); })
-            [fn](prod);
+            apiPost(fn, {product: prod})
+            .then(function(res) { spin(false); if (res.success) { closeProdModal(); toast('✓ Producto ' + (S.editing ? 'actualizado' : 'agregado'), 'ok'); apiGet('init').then(function(d) { S.prods = d.products || []; buildCatalog(); renderInv(); }); } else { toast(res.error || 'Error al guardar', 'err'); } })
+            .catch(function(e) { spin(false); toast('Error: ' + e.message, 'err'); });
         }
         function esc(str) { return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
         function spin(on, txt) { document.getElementById('spinner').classList.toggle('show', on); if (txt) document.getElementById('spinTxt').textContent = txt; }
@@ -2759,17 +2751,12 @@
 
         (function initSerial() {
             if (!('serial' in navigator)) return;
-            //document.getElementById('btnSerial').style.display = 'flex';
             try {
-                navigator.serial.getPorts().then(function (ports) {
+                navigator.serial.getPorts().then(function(ports) {
                     if (ports.length) { _serialPort = ports[0]; }
                 });
-            } catch (e) { }
-            if (ports.length) {
-                _serialPort = ports[0];
-                document.getElementById('btnSerial').textContent = '🖨️ Impresora lista ✓';
-            }
-        });
+            } catch(e) {}
+        })();
         
 
         function setupSerial() {
@@ -2867,6 +2854,48 @@
                     _serialPort.close().catch(function () { });
                     window.print(); // fallback
                 });
+        }
+
+        // ── API HELPERS (GitHub Pages) ───────────────────────────────
+        function apiGet(action, params) {
+            var url = S.SCRIPT_URL + '?action=' + action;
+            if (params) Object.keys(params).forEach(function(k) {
+                url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+            });
+            return fetch(url).then(function(r) { return r.json(); });
+        }
+        function apiPost(action, data) {
+            data.action = action;
+            return fetch(S.SCRIPT_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'text/plain'},
+                body: JSON.stringify(data)
+            }).then(function(r) { return r.json(); });
+        }
+        function openCfg() {
+            document.getElementById('cfgUrl').value = S.SCRIPT_URL;
+            document.getElementById('cfgBiz').value = S.BIZ;
+            document.getElementById('cfgCur').value = S.CUR;
+            document.getElementById('cfgModal').classList.add('show');
+        }
+        function closeCfg() {
+            if (S.SCRIPT_URL) document.getElementById('cfgModal').classList.remove('show');
+        }
+        function saveConfig() {
+            var url = document.getElementById('cfgUrl').value.trim();
+            var biz = document.getElementById('cfgBiz').value.trim() || 'Esmeraldas';
+            var cur = document.getElementById('cfgCur').value.trim() || 'S/.';
+            if (!url) { toast('La URL es obligatoria', 'err'); return; }
+            S.SCRIPT_URL = url; S.BIZ = biz; S.CUR = cur;
+            localStorage.setItem('pos_url', url);
+            localStorage.setItem('pos_biz', biz);
+            localStorage.setItem('pos_cur', cur);
+            document.getElementById('logoTxt').textContent = biz.toUpperCase();
+            document.getElementById('cfgModal').classList.remove('show');
+            spin(true, 'Cargando...');
+            apiGet('init').then(onBoot).catch(function(e) {
+                spin(false); toast('Error: ' + e.message, 'err'); openCfg();
+            });
         }
     </script>
 </body>
