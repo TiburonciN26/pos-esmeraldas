@@ -205,7 +205,7 @@
       }
     }
 
-    @media(max-width:1024px) {
+    @media(max-width:636px) {
       .clock {
         display: none
       }
@@ -214,6 +214,13 @@
         display: none
       }
     }
+@media(max-width:790px) {
+            .clock {
+                display: none
+            }
+
+            
+        }
 
     .views {
       flex: 1;
@@ -2889,7 +2896,7 @@ var totalProds = activas.reduce(function (sum, s) { return sum + (s.items || [])
                     window.print(); // fallback
                 });
         }
-    // ── API HELPERS (GitHub Pages) ───────────────────────────────
+        // ── API HELPERS (GitHub Pages) ───────────────────────────────
         function apiGet(action, params) {
             var url = S.SCRIPT_URL + '?action=' + action;
             if (params) Object.keys(params).forEach(function(k) {
