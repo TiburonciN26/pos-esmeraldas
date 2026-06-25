@@ -2889,6 +2889,48 @@ var totalProds = activas.reduce(function (sum, s) { return sum + (s.items || [])
                     window.print(); // fallback
                 });
         }
+    // ── API HELPERS (GitHub Pages) ───────────────────────────────
+        function apiGet(action, params) {
+            var url = S.SCRIPT_URL + '?action=' + action;
+            if (params) Object.keys(params).forEach(function(k) {
+                url += '&' + encodeURIComponent(k) + '=' + encodeURIComponent(params[k]);
+            });
+            return fetch(url).then(function(r) { return r.json(); });
+        }
+        function apiPost(action, data) {
+            data.action = action;
+            return fetch(S.SCRIPT_URL, {
+                method: 'POST',
+                headers: {'Content-Type': 'text/plain'},
+                body: JSON.stringify(data)
+            }).then(function(r) { return r.json(); });
+        }
+        function openCfg() {
+            document.getElementById('cfgUrl').value = S.SCRIPT_URL;
+            document.getElementById('cfgBiz').value = S.BIZ;
+            document.getElementById('cfgCur').value = S.CUR;
+            document.getElementById('cfgModal').classList.add('show');
+        }
+        function closeCfg() {
+            if (S.SCRIPT_URL) document.getElementById('cfgModal').classList.remove('show');
+        }
+        function saveConfig() {
+            var url = document.getElementById('cfgUrl').value.trim();
+            var biz = document.getElementById('cfgBiz').value.trim() || 'Esmeraldas';
+            var cur = document.getElementById('cfgCur').value.trim() || 'S/.';
+            if (!url) { toast('La URL es obligatoria', 'err'); return; }
+            S.SCRIPT_URL = url; S.BIZ = biz; S.CUR = cur;
+            localStorage.setItem('pos_url', url);
+            localStorage.setItem('pos_biz', biz);
+            localStorage.setItem('pos_cur', cur);
+            document.getElementById('logoTxt').textContent = biz.toUpperCase();
+            document.getElementById('cfgModal').classList.remove('show');
+            spin(true, 'Cargando...');
+            apiGet('init').then(onBoot).catch(function(e) {
+                spin(false); toast('Error: ' + e.message, 'err'); openCfg();
+            });
+        }
+
         var _photoZoom = 1;
 var _photoDrag = {active:false, startX:0, startY:0, tx:0, ty:0, lastTx:0, lastTy:0};
 var _pinch = {active:false, startDist:0, startZoom:1};
